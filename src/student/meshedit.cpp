@@ -75,8 +75,41 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::collapse_face(Halfedge_Me
     flipped edge.
 */
 std::optional<Halfedge_Mesh::EdgeRef> Halfedge_Mesh::flip_edge(Halfedge_Mesh::EdgeRef e) {
+    HalfedgeRef h0 = e->halfedge();
+    VertexRef v_twin = h0->vertex();
+    VertexRef v = h0->twin()->vertex();
+    VertexRef v_next = h0->next()->next()->vertex();
+    VertexRef v_twin_next = h0->twin()->next()->next()->vertex();
+    HalfedgeRef cur = h0;
+    while (cur->next() != h0) {
+        cur = cur->next();
+    }
+    HalfedgeRef prev = cur;
+    cur = h0->twin();
+    while (cur->next() != h0->twin()) {
+        cur = cur->next();
+    }
+    HalfedgeRef prev_twin = cur;
+    HalfedgeRef next = h0->next();
+    HalfedgeRef next_twin = h0->twin()->next();
+    // wire faces
+    h0->face()->halfedge() = h0;
+    h0->twin()->face()->halfedge() = h0->twin();
+    next->face() = h0->twin()->face();
+    next_twin->face() = h0->face();
+    // wire vertices
+    h0->vertex() = v_twin_next;
+    h0->twin()->vertex() = v_next;
+    v->halfedge() = next;
+    v_twin->halfedge() = next_twin;
+    // wire halfedges
+    h0->next() = h0->next()->next();
+    h0->twin()->next() = h0->twin()->next()->next();
+    next->next() = h0->twin();
+    next_twin->next() = h0;
+    prev->next() = next_twin;
+    prev_twin->next() = next;
 
-    (void)e;
     return std::nullopt;
 }
 
