@@ -70,6 +70,14 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::collapse_face(Halfedge_Me
     return std::nullopt;
 }
 
+// void Halfedge_Mesh::set_halfedge(HalfedgeRef halfedge, EdgeRef edge, VertexRef vertex, HalfedgeRef next, HalfedgeRef twin, FaceRef face) {
+//     halfedge->edge() = edge;
+//     halfedge->vertex() = vertex;
+//     halfedge->next() = next;
+//     halfedge->twin() = twin;
+//     halfedge->face() = face;
+// }
+
 /*
     This method should flip the given edge and return an iterator to the
     flipped edge.
