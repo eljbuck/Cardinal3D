@@ -223,6 +223,13 @@ public:
     */
     std::optional<EdgeRef> flip_edge(EdgeRef e);
 
+    void make_twins(HalfedgeRef a, HalfedgeRef b);
+
+    void wire_triangle(FaceRef f, 
+        EdgeRef e0, EdgeRef e1, EdgeRef e2, 
+        VertexRef v0, VertexRef v1, VertexRef v2,
+        HalfedgeRef h0, HalfedgeRef h1, HalfedgeRef h2);
+
     /*
         Split an edge, returning a pointer to the inserted midpoint vertex; the
         halfedge of this vertex should refer to one of the edges in the original

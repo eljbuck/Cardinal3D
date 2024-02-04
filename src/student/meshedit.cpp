@@ -118,7 +118,48 @@ std::optional<Halfedge_Mesh::EdgeRef> Halfedge_Mesh::flip_edge(Halfedge_Mesh::Ed
     prev->next() = next_twin;
     prev_twin->next() = next;
 
-    return std::nullopt;
+    return e;
+}
+
+void Halfedge_Mesh::wire_triangle(FaceRef f, 
+        EdgeRef e0, EdgeRef e1, EdgeRef e2, 
+        VertexRef v0, VertexRef v1, VertexRef v2,
+        HalfedgeRef h0, HalfedgeRef h1, HalfedgeRef h2) {
+
+    //halfedges
+    h0->next() = h1;
+    h1->next() = h2;
+    h2->next() = h0;
+
+    h0->edge() = e0;
+    h1->edge() = e1;
+    h2->edge() = e2;
+
+    h0->vertex() = v0;
+    h1->vertex() = v1;
+    h2->vertex() = v2;
+
+    h0->face() = f;
+    h1->face() = f;
+    h2->face() = f;
+
+    //edges
+    e0->halfedge() = h0;
+    e1->halfedge() = h1;
+    e2->halfedge() = h2;
+
+    //verticies
+    v0->halfedge() = h0;
+    v1->halfedge() = h1;
+    v2->halfedge() = h2;
+
+    //face
+    f->halfedge() = h0;
+}
+
+void Halfedge_Mesh::make_twins(HalfedgeRef a, HalfedgeRef b) {
+    a->twin() = b;
+    b->twin() = a;
 }
 
 /*
@@ -128,8 +169,61 @@ std::optional<Halfedge_Mesh::EdgeRef> Halfedge_Mesh::flip_edge(Halfedge_Mesh::Ed
 */
 std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::split_edge(Halfedge_Mesh::EdgeRef e) {
 
-    (void)e;
-    return std::nullopt;
+    //references
+    HalfedgeRef h0 = e->halfedge();
+    HalfedgeRef h1 = h0->next();
+    HalfedgeRef h2 = h1->next();
+
+    HalfedgeRef h3 = h0->twin();
+    HalfedgeRef h4 = h3->next();
+    HalfedgeRef h5 = h4->next();
+
+    EdgeRef e0 = e;
+    EdgeRef e1 = h1->edge();
+    EdgeRef e2 = h2->edge();
+    EdgeRef e3 = h4->edge();
+    EdgeRef e4 = h5->edge();
+
+    FaceRef f0 = h0->face();
+    FaceRef f1 = h3->face();
+
+    VertexRef v0 = h0->vertex();
+    VertexRef v1 = h1->vertex();
+    VertexRef v2 = h2->vertex();
+    VertexRef v3 = h5->vertex();
+
+    //allocation
+    VertexRef m = new_vertex();
+    
+    EdgeRef e5 = new_edge();
+    EdgeRef e6 = new_edge();
+    EdgeRef e7 = new_edge();
+
+    FaceRef f2 = new_face();
+    FaceRef f3 = new_face();
+
+    HalfedgeRef h6 = new_halfedge();
+    HalfedgeRef h7 = new_halfedge();
+    HalfedgeRef h8 = new_halfedge();
+    HalfedgeRef h9 = new_halfedge();
+    HalfedgeRef h10 = new_halfedge();
+    HalfedgeRef h11 = new_halfedge();
+
+    // position midpoint
+    Vec3 midpoint = e->center();
+    m->pos = midpoint;
+
+    //wire triangles
+    wire_triangle(f0, e0, e1, e5, m, v1, v2, h0, h1, h6); // top left in diagram
+    wire_triangle(f1, e4, e0, e7, v3, v1, m, h5, h3, h11); // top right
+    wire_triangle(f2, e6, e5, e2, v0, m, v2, h8, h7, h2); // bot left
+    wire_triangle(f3, e3, e7, e6, v0, v3, m, h4, h10, h9); // bot right
+
+    make_twins(h6, h7);
+    make_twins(h11, h10);
+    make_twins(h9, h8);
+
+    return m;
 }
 
 /* Note on the beveling process:
