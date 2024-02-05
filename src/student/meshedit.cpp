@@ -285,6 +285,24 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::bevel_edge(Halfedge_Mesh::E
 }
 
 /*
+    The following three util function add some syntactic assistance to ensure we only need to worry about wiring halfedges
+*/
+void Halfedge_Mesh::wire_vertex(HalfedgeRef h, VertexRef v) {
+    h->vertex() = v;
+    v->halfedge() = h;
+}
+
+void Halfedge_Mesh::wire_edge(HalfedgeRef h, EdgeRef e) {
+    h->edge() = e;
+    e->halfedge() = h;
+}
+
+void Halfedge_Mesh::wire_face(HalfedgeRef h, FaceRef f) {
+    h->face() = f;
+    f->halfedge() = h;
+}
+
+/*
     This method should replace the face f with an additional, inset face
     (and ring of faces around it), corresponding to a bevel operation. It
     should return the new face.  NOTE: This method is responsible for updating
@@ -298,8 +316,91 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::bevel_face(Halfedge_Mesh::F
     // Reminder: You should set the positions of new vertices (v->pos) to be exactly
     // the same as wherever they "started from."
 
-    (void)f;
-    return std::nullopt;
+    std::vector<HalfedgeRef> original_halfedges = std::vector<HalfedgeRef>();
+    
+    std::vector<HalfedgeRef> top_face_halfedges = std::vector<HalfedgeRef>();
+    std::vector<HalfedgeRef> new_left_halfedges = std::vector<HalfedgeRef>();
+    std::vector<HalfedgeRef> new_top_halfedges = std::vector<HalfedgeRef>();
+    std::vector<HalfedgeRef> new_right_halfedges = std::vector<HalfedgeRef>();
+
+    std::vector<FaceRef> new_faces = std::vector<FaceRef>();
+    std::vector<EdgeRef> top_face_edges = std::vector<EdgeRef>();
+    std::vector<EdgeRef> outside_face_left_edges = std::vector<EdgeRef>();
+
+    std::vector<VertexRef> original_verts = std::vector<VertexRef>();
+    std::vector<VertexRef> new_verts = std::vector<VertexRef>();
+    
+
+    // get refs to original halfedges, original verts, add new verts at copied positions, add halfedges for top face
+    auto h = f->halfedge();
+    do {
+        original_halfedges.push_back(h);
+        original_verts.push_back(h->vertex());
+
+        top_face_halfedges.push_back(new_halfedge());
+
+        new_left_halfedges.push_back(new_halfedge());
+        new_top_halfedges.push_back(new_halfedge());
+        new_right_halfedges.push_back(new_halfedge());
+
+        new_faces.push_back(new_face());
+        top_face_edges.push_back(new_edge());
+        outside_face_left_edges.push_back(new_edge());
+
+        VertexRef new_vert = new_vertex();
+        new_vert->pos = h->vertex()->pos;
+        new_verts.push_back(new_vert);
+
+        h = h->next();
+    } while(h != f->halfedge());
+
+    int n = original_verts.size(); // number of verticies in the original polygon
+
+    
+    for (int i = 0; i < n; i++) {
+        int next_idx = (i+1) % n;
+
+        // wire top face halfedges to each other and correct verts/face/edge
+        top_face_halfedges[i]->next() = top_face_halfedges[next_idx];
+        wire_vertex(top_face_halfedges[i], new_verts[i]);
+        wire_face(top_face_halfedges[i], f);
+        wire_edge(top_face_halfedges[i], top_face_edges[i]);
+
+        // wire twins for top face halfedges
+        make_twins(top_face_halfedges[i], new_top_halfedges[i]);
+
+        // wire left/right twins for outside faces
+        make_twins(new_right_halfedges[i], new_left_halfedges[next_idx]);
+
+        // wire nexts for outside faces
+        original_halfedges[i]->next() = new_right_halfedges[i];
+        new_right_halfedges[i]->next() = new_top_halfedges[i];
+        new_top_halfedges[i]->next() = new_left_halfedges[i];
+        new_left_halfedges[i]->next() = original_halfedges[i];
+
+        // wire faces for outside faces
+        wire_face(original_halfedges[i], new_faces[i]);
+        wire_face(new_right_halfedges[i], new_faces[i]);
+        wire_face(new_top_halfedges[i], new_faces[i]);
+        wire_face(new_left_halfedges[i], new_faces[i]);
+
+        // wire edges for outside faces
+        wire_edge(new_right_halfedges[i], outside_face_left_edges[next_idx]);
+        wire_edge(new_top_halfedges[i], top_face_edges[i]);
+        wire_edge(new_left_halfedges[i], outside_face_left_edges[i]);
+
+        // wire vertices for outside faces
+        wire_vertex(new_right_halfedges[i], original_verts[next_idx]);
+        wire_vertex(new_top_halfedges[i], new_verts[next_idx]);
+        wire_vertex(new_left_halfedges[i], new_verts[i]);
+    }
+
+    // Gave up on using a function (sadge)
+    // remember we still need to allocated 8 extra edges, 4 more faces
+    // then we need to wire the next()s for the outside faces, 
+    // and also wire the edges, faces, and vertices up for those (RIPBOZO)
+
+    return f;
 }
 
 /*
@@ -389,6 +490,11 @@ void Halfedge_Mesh::bevel_face_positions(const std::vector<Vec3>& start_position
                                          Halfedge_Mesh::FaceRef face, float tangent_offset,
                                          float normal_offset) {
 
+    // clamp offset to 1                                        
+    if (tangent_offset > 1.0) {
+        tangent_offset = 1.0;
+    }                                        
+
     if(flip_orientation) normal_offset = -normal_offset;
     std::vector<HalfedgeRef> new_halfedges;
     auto h = face->halfedge();
@@ -402,6 +508,21 @@ void Halfedge_Mesh::bevel_face_positions(const std::vector<Vec3>& start_position
     (void)face;
     (void)tangent_offset;
     (void)normal_offset;
+
+    // set initial vertex positions
+    for (int i = 0; i < (int) start_positions.size(); i++) {
+        new_halfedges[i]->vertex()->pos = start_positions[i];
+    }
+
+    Vec3 normal = face->normal();
+    Vec3 center = face->center();
+
+    for (int i = 0; i < (int) start_positions.size(); i++) {
+        // horizontal offset relative to face
+        new_halfedges[i]->vertex()->pos += (center - start_positions[i]) * tangent_offset;
+        // vertical offset relative to face
+        new_halfedges[i]->vertex()->pos += normal * normal_offset;
+    }
 }
 
 /*

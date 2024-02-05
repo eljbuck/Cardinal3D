@@ -247,6 +247,10 @@ public:
     */
     std::optional<FaceRef> bevel_edge(EdgeRef e);
 
+    void wire_vertex(HalfedgeRef h, VertexRef v);
+    void wire_edge(HalfedgeRef h, EdgeRef e);
+    void wire_face(HalfedgeRef h, FaceRef f);
+
     /*
         Insets a face into the given face, returning a pointer to the new center face
     */
