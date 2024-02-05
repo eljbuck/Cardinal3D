@@ -209,6 +209,11 @@ public:
     std::optional<FaceRef> erase_edge(EdgeRef e);
 
     /*
+        Returns whether polygon with face f is degenerate
+    */
+    bool is_degenerate(FaceRef f);
+    
+    /*
         Collapse an edge, returning a pointer to the collapsed vertex
     */
     std::optional<VertexRef> collapse_edge(EdgeRef e);

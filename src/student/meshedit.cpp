@@ -2,6 +2,7 @@
 #include <queue>
 #include <set>
 #include <unordered_map>
+#include <iostream>
 
 #include "../geometry/halfedge.h"
 #include "debug.h"
@@ -50,14 +51,105 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::erase_edge(Halfedge_Mesh::E
     return std::nullopt;
 }
 
+bool Halfedge_Mesh::is_degenerate(Halfedge_Mesh::FaceRef f) {
+    HalfedgeRef h0 = f->halfedge();
+    VertexRef v0 = h0->vertex();
+    VertexRef v1 = h0->next()->vertex();
+    VertexRef v2 = h0->next()->next()->vertex();
+    return v0->pos == v1->pos || v1->pos == v2->pos || v2->pos == v0->pos;
+}
+
 /*
     This method should collapse the given edge and return an iterator to
     the new vertex created by the collapse.
 */
 std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::collapse_edge(Halfedge_Mesh::EdgeRef e) {
+    // boundary check:
+    if (e->halfedge()->is_boundary() || e->halfedge()->twin()->is_boundary()) {
+        return std::nullopt;
+    }
+    // references
+    EdgeRef e0 = e;
+    Vec3 midpoint = e0->center();
 
-    (void)e;
-    return std::nullopt;
+    HalfedgeRef h0 = e0->halfedge();
+    HalfedgeRef h1 = h0->next();
+    HalfedgeRef h2 = h1->next();
+    HalfedgeRef h3 = h0->twin();
+    HalfedgeRef h4 = h1->twin();
+    HalfedgeRef h5 = h2->twin();
+    HalfedgeRef h6 = h3->next();
+    HalfedgeRef h7 = h6->next();
+    HalfedgeRef h8 = h6->twin();
+    HalfedgeRef h9 = h7->twin();
+
+    EdgeRef e1 = h1->edge();
+    EdgeRef e2 = h2->edge();
+    EdgeRef e3 = h6->edge();
+    EdgeRef e4 = h7->edge();
+
+    VertexRef v0 = h0->vertex();
+    VertexRef v1 = h1->vertex();
+    VertexRef v2 = h2->vertex();
+    VertexRef v3 = h7->vertex();
+
+    FaceRef f0 = h0->face();
+    FaceRef f1 = h3->face();
+
+    // reassign
+    h5->twin() = h4;
+    h4->twin() = h5;
+    h5->edge() = e2;
+    h4->edge() = e2;
+    h5->vertex() = v0;
+    h4->vertex() = v2;
+
+    e2->halfedge() = h5;
+    v0->halfedge() = h5;
+    v2->halfedge() = h4;
+
+    h8->twin() = h9;
+    h9->twin() = h8;
+    h8->edge() = e3;
+    h9->edge() = e3;
+    h8->vertex() = v3;
+    h9->vertex() = v0;
+
+    e3->halfedge() = h8;
+    v3->halfedge() = h8;
+
+    // accumulate list of halfedges whose vertex is v0
+    std::vector<HalfedgeRef> compromised_halfedges;
+    HalfedgeRef cur = h1;
+    // NOTE: currently only works on triangles
+    do {
+        cur = cur->twin()->next();
+        cur->face()->halfedge() = cur;
+        compromised_halfedges.push_back(cur);
+    } while (cur != h9);
+
+    // reassign compromised halfedges to vertex v1
+    for (HalfedgeRef halfedge : compromised_halfedges) {
+        halfedge->vertex() = v0;
+    }
+
+    v1->pos = v0->pos;
+    v0->pos = midpoint;
+
+    erase(h0);
+    erase(h1);
+    erase(h2);
+    erase(h3);
+    erase(h6);
+    erase(h7);
+    erase(e0);
+    erase(e1);
+    erase(e4);
+    erase(f0);
+    erase(f1);
+    erase(v1);
+
+    return v0;
 }
 
 /*
@@ -83,6 +175,10 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::collapse_face(Halfedge_Me
     flipped edge.
 */
 std::optional<Halfedge_Mesh::EdgeRef> Halfedge_Mesh::flip_edge(Halfedge_Mesh::EdgeRef e) {
+    // boundary check:
+    if (e->halfedge()->is_boundary() || e->halfedge()->twin()->is_boundary()) {
+        return std::nullopt;
+    }
     HalfedgeRef h0 = e->halfedge();
     VertexRef v_twin = h0->vertex();
     VertexRef v = h0->twin()->vertex();
@@ -121,47 +217,6 @@ std::optional<Halfedge_Mesh::EdgeRef> Halfedge_Mesh::flip_edge(Halfedge_Mesh::Ed
     return e;
 }
 
-void Halfedge_Mesh::wire_triangle(FaceRef f, 
-        EdgeRef e0, EdgeRef e1, EdgeRef e2, 
-        VertexRef v0, VertexRef v1, VertexRef v2,
-        HalfedgeRef h0, HalfedgeRef h1, HalfedgeRef h2) {
-
-    //halfedges
-    h0->next() = h1;
-    h1->next() = h2;
-    h2->next() = h0;
-
-    h0->edge() = e0;
-    h1->edge() = e1;
-    h2->edge() = e2;
-
-    h0->vertex() = v0;
-    h1->vertex() = v1;
-    h2->vertex() = v2;
-
-    h0->face() = f;
-    h1->face() = f;
-    h2->face() = f;
-
-    //edges
-    e0->halfedge() = h0;
-    e1->halfedge() = h1;
-    e2->halfedge() = h2;
-
-    //verticies
-    v0->halfedge() = h0;
-    v1->halfedge() = h1;
-    v2->halfedge() = h2;
-
-    //face
-    f->halfedge() = h0;
-}
-
-void Halfedge_Mesh::make_twins(HalfedgeRef a, HalfedgeRef b) {
-    a->twin() = b;
-    b->twin() = a;
-}
-
 /*
     This method should split the given edge and return an iterator to the
     newly inserted vertex. The halfedge of this vertex should point along
@@ -169,61 +224,8 @@ void Halfedge_Mesh::make_twins(HalfedgeRef a, HalfedgeRef b) {
 */
 std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::split_edge(Halfedge_Mesh::EdgeRef e) {
 
-    //references
-    HalfedgeRef h0 = e->halfedge();
-    HalfedgeRef h1 = h0->next();
-    HalfedgeRef h2 = h1->next();
-
-    HalfedgeRef h3 = h0->twin();
-    HalfedgeRef h4 = h3->next();
-    HalfedgeRef h5 = h4->next();
-
-    EdgeRef e0 = e;
-    EdgeRef e1 = h1->edge();
-    EdgeRef e2 = h2->edge();
-    EdgeRef e3 = h4->edge();
-    EdgeRef e4 = h5->edge();
-
-    FaceRef f0 = h0->face();
-    FaceRef f1 = h3->face();
-
-    VertexRef v0 = h0->vertex();
-    VertexRef v1 = h1->vertex();
-    VertexRef v2 = h2->vertex();
-    VertexRef v3 = h5->vertex();
-
-    //allocation
-    VertexRef m = new_vertex();
-    
-    EdgeRef e5 = new_edge();
-    EdgeRef e6 = new_edge();
-    EdgeRef e7 = new_edge();
-
-    FaceRef f2 = new_face();
-    FaceRef f3 = new_face();
-
-    HalfedgeRef h6 = new_halfedge();
-    HalfedgeRef h7 = new_halfedge();
-    HalfedgeRef h8 = new_halfedge();
-    HalfedgeRef h9 = new_halfedge();
-    HalfedgeRef h10 = new_halfedge();
-    HalfedgeRef h11 = new_halfedge();
-
-    // position midpoint
-    Vec3 midpoint = e->center();
-    m->pos = midpoint;
-
-    //wire triangles
-    wire_triangle(f0, e0, e1, e5, m, v1, v2, h0, h1, h6); // top left in diagram
-    wire_triangle(f1, e4, e0, e7, v3, v1, m, h5, h3, h11); // top right
-    wire_triangle(f2, e6, e5, e2, v0, m, v2, h8, h7, h2); // bot left
-    wire_triangle(f3, e3, e7, e6, v0, v3, m, h4, h10, h9); // bot right
-
-    make_twins(h6, h7);
-    make_twins(h11, h10);
-    make_twins(h9, h8);
-
-    return m;
+    (void)e;
+    return std::nullopt;
 }
 
 /* Note on the beveling process:
@@ -285,24 +287,6 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::bevel_edge(Halfedge_Mesh::E
 }
 
 /*
-    The following three util function add some syntactic assistance to ensure we only need to worry about wiring halfedges
-*/
-void Halfedge_Mesh::wire_vertex(HalfedgeRef h, VertexRef v) {
-    h->vertex() = v;
-    v->halfedge() = h;
-}
-
-void Halfedge_Mesh::wire_edge(HalfedgeRef h, EdgeRef e) {
-    h->edge() = e;
-    e->halfedge() = h;
-}
-
-void Halfedge_Mesh::wire_face(HalfedgeRef h, FaceRef f) {
-    h->face() = f;
-    f->halfedge() = h;
-}
-
-/*
     This method should replace the face f with an additional, inset face
     (and ring of faces around it), corresponding to a bevel operation. It
     should return the new face.  NOTE: This method is responsible for updating
@@ -316,91 +300,8 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::bevel_face(Halfedge_Mesh::F
     // Reminder: You should set the positions of new vertices (v->pos) to be exactly
     // the same as wherever they "started from."
 
-    std::vector<HalfedgeRef> original_halfedges = std::vector<HalfedgeRef>();
-    
-    std::vector<HalfedgeRef> top_face_halfedges = std::vector<HalfedgeRef>();
-    std::vector<HalfedgeRef> new_left_halfedges = std::vector<HalfedgeRef>();
-    std::vector<HalfedgeRef> new_top_halfedges = std::vector<HalfedgeRef>();
-    std::vector<HalfedgeRef> new_right_halfedges = std::vector<HalfedgeRef>();
-
-    std::vector<FaceRef> new_faces = std::vector<FaceRef>();
-    std::vector<EdgeRef> top_face_edges = std::vector<EdgeRef>();
-    std::vector<EdgeRef> outside_face_left_edges = std::vector<EdgeRef>();
-
-    std::vector<VertexRef> original_verts = std::vector<VertexRef>();
-    std::vector<VertexRef> new_verts = std::vector<VertexRef>();
-    
-
-    // get refs to original halfedges, original verts, add new verts at copied positions, add halfedges for top face
-    auto h = f->halfedge();
-    do {
-        original_halfedges.push_back(h);
-        original_verts.push_back(h->vertex());
-
-        top_face_halfedges.push_back(new_halfedge());
-
-        new_left_halfedges.push_back(new_halfedge());
-        new_top_halfedges.push_back(new_halfedge());
-        new_right_halfedges.push_back(new_halfedge());
-
-        new_faces.push_back(new_face());
-        top_face_edges.push_back(new_edge());
-        outside_face_left_edges.push_back(new_edge());
-
-        VertexRef new_vert = new_vertex();
-        new_vert->pos = h->vertex()->pos;
-        new_verts.push_back(new_vert);
-
-        h = h->next();
-    } while(h != f->halfedge());
-
-    int n = original_verts.size(); // number of verticies in the original polygon
-
-    
-    for (int i = 0; i < n; i++) {
-        int next_idx = (i+1) % n;
-
-        // wire top face halfedges to each other and correct verts/face/edge
-        top_face_halfedges[i]->next() = top_face_halfedges[next_idx];
-        wire_vertex(top_face_halfedges[i], new_verts[i]);
-        wire_face(top_face_halfedges[i], f);
-        wire_edge(top_face_halfedges[i], top_face_edges[i]);
-
-        // wire twins for top face halfedges
-        make_twins(top_face_halfedges[i], new_top_halfedges[i]);
-
-        // wire left/right twins for outside faces
-        make_twins(new_right_halfedges[i], new_left_halfedges[next_idx]);
-
-        // wire nexts for outside faces
-        original_halfedges[i]->next() = new_right_halfedges[i];
-        new_right_halfedges[i]->next() = new_top_halfedges[i];
-        new_top_halfedges[i]->next() = new_left_halfedges[i];
-        new_left_halfedges[i]->next() = original_halfedges[i];
-
-        // wire faces for outside faces
-        wire_face(original_halfedges[i], new_faces[i]);
-        wire_face(new_right_halfedges[i], new_faces[i]);
-        wire_face(new_top_halfedges[i], new_faces[i]);
-        wire_face(new_left_halfedges[i], new_faces[i]);
-
-        // wire edges for outside faces
-        wire_edge(new_right_halfedges[i], outside_face_left_edges[next_idx]);
-        wire_edge(new_top_halfedges[i], top_face_edges[i]);
-        wire_edge(new_left_halfedges[i], outside_face_left_edges[i]);
-
-        // wire vertices for outside faces
-        wire_vertex(new_right_halfedges[i], original_verts[next_idx]);
-        wire_vertex(new_top_halfedges[i], new_verts[next_idx]);
-        wire_vertex(new_left_halfedges[i], new_verts[i]);
-    }
-
-    // Gave up on using a function (sadge)
-    // remember we still need to allocated 8 extra edges, 4 more faces
-    // then we need to wire the next()s for the outside faces, 
-    // and also wire the edges, faces, and vertices up for those (RIPBOZO)
-
-    return f;
+    (void)f;
+    return std::nullopt;
 }
 
 /*
@@ -490,11 +391,6 @@ void Halfedge_Mesh::bevel_face_positions(const std::vector<Vec3>& start_position
                                          Halfedge_Mesh::FaceRef face, float tangent_offset,
                                          float normal_offset) {
 
-    // clamp offset to 1                                        
-    if (tangent_offset > 1.0) {
-        tangent_offset = 1.0;
-    }                                        
-
     if(flip_orientation) normal_offset = -normal_offset;
     std::vector<HalfedgeRef> new_halfedges;
     auto h = face->halfedge();
@@ -508,21 +404,6 @@ void Halfedge_Mesh::bevel_face_positions(const std::vector<Vec3>& start_position
     (void)face;
     (void)tangent_offset;
     (void)normal_offset;
-
-    // set initial vertex positions
-    for (int i = 0; i < (int) start_positions.size(); i++) {
-        new_halfedges[i]->vertex()->pos = start_positions[i];
-    }
-
-    Vec3 normal = face->normal();
-    Vec3 center = face->center();
-
-    for (int i = 0; i < (int) start_positions.size(); i++) {
-        // horizontal offset relative to face
-        new_halfedges[i]->vertex()->pos += (center - start_positions[i]) * tangent_offset;
-        // vertical offset relative to face
-        new_halfedges[i]->vertex()->pos += normal * normal_offset;
-    }
 }
 
 /*
