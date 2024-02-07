@@ -228,7 +228,7 @@ public:
     */
     std::optional<EdgeRef> flip_edge(EdgeRef e);
 
-    void make_twins(HalfedgeRef a, HalfedgeRef b);
+    void wire_twins(HalfedgeRef a, HalfedgeRef b);
 
     void wire_triangle(FaceRef f, 
         EdgeRef e0, EdgeRef e1, EdgeRef e2, 
