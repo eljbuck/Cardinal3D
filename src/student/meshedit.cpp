@@ -401,7 +401,6 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::bevel_face(Halfedge_Mesh::F
     // the same as wherever they "started from."
 
     std::vector<HalfedgeRef> original_halfedges = std::vector<HalfedgeRef>();
-    
     std::vector<HalfedgeRef> top_face_halfedges = std::vector<HalfedgeRef>();
     std::vector<HalfedgeRef> new_left_halfedges = std::vector<HalfedgeRef>();
     std::vector<HalfedgeRef> new_top_halfedges = std::vector<HalfedgeRef>();
@@ -612,6 +611,112 @@ void Halfedge_Mesh::bevel_face_positions(const std::vector<Vec3>& start_position
     }
 }
 
+void Halfedge_Mesh::triangulate_face(FaceRef f0) {
+
+    std::vector<HalfedgeRef> original_halfedges = std::vector<HalfedgeRef>();
+    std::vector<EdgeRef> original_edges = std::vector<EdgeRef>();
+    std::vector<VertexRef> original_verts = std::vector<VertexRef>();
+
+    // get original halfedges, edges, and verts
+    auto h = f0->halfedge();
+    do {
+        original_halfedges.push_back(h);
+        original_edges.push_back(h->edge());
+        original_verts.push_back(h->vertex());
+
+        h = h->next();
+    } while(h != f0->halfedge());
+
+    int degree = (int) f0->degree();
+
+    // get faces
+    std::vector<FaceRef> faces = std::vector<FaceRef>();
+
+    faces.push_back(f0);
+    for (int i = 0; i < degree - 3; i++) {
+        faces.push_back(new_face());
+    }
+
+    // get edges
+    std::vector<EdgeRef> right_edges = std::vector<EdgeRef>();    
+
+    right_edges.push_back(original_edges[0]);
+    for (int i = 0; i < degree - 3; i++) {
+        right_edges.push_back(new_edge());
+    }
+
+    std::vector<EdgeRef> left_edges = std::vector<EdgeRef>();  
+
+    for (int i = 0; i < degree - 3; i++) {
+        left_edges.push_back(right_edges[i + 1]);
+    }
+    left_edges.push_back(original_edges[(int) original_edges.size() - 1]);
+
+    std::vector<EdgeRef> top_edges = std::vector<EdgeRef>();  
+
+    for (int i = 0; i < degree - 2; i++) {
+        top_edges.push_back(original_edges[i + 1]);
+    }
+
+    //get vertices
+    std::vector<VertexRef> right_verts = std::vector<VertexRef>();
+
+    for (int i = 0; i < degree - 2; i++) {
+        right_verts.push_back(original_verts[i + 1]);
+    }
+
+    std::vector<VertexRef> left_verts = std::vector<VertexRef>();
+
+    for (int i = 0; i < degree - 2; i++) {
+        left_verts.push_back(original_verts[i + 2]);
+    }
+
+    //get halfedges
+    std::vector<HalfedgeRef> right_halfedges = std::vector<HalfedgeRef>();    
+
+    right_halfedges.push_back(original_halfedges[0]);
+    for (int i = 0; i < degree - 3; i++) {
+        right_halfedges.push_back(new_halfedge());
+    }
+
+    std::vector<HalfedgeRef> left_halfedges = std::vector<HalfedgeRef>();  
+
+    for (int i = 0; i < degree - 3; i++) {
+        left_halfedges.push_back(new_halfedge());
+    }
+    left_halfedges.push_back(original_halfedges[original_halfedges.size() - 1]);
+
+    std::vector<HalfedgeRef> top_halfedges = std::vector<HalfedgeRef>();  
+
+    for (int i = 0; i < degree - 2; i++) {
+        top_halfedges.push_back(original_halfedges[i + 1]);
+    }
+
+    //wire triangles
+    for (int i = 0; i < degree - 2; i++) {
+        FaceRef f = faces[i];
+
+        EdgeRef e0 = right_edges[i];
+        EdgeRef e1 = top_edges[i];
+        EdgeRef e2 = left_edges[i];
+
+        VertexRef v0 = original_verts[0];
+        VertexRef v1 = right_verts[i];
+        VertexRef v2 = left_verts[i];
+
+        HalfedgeRef h0 = right_halfedges[i];
+        HalfedgeRef h1 = top_halfedges[i];
+        HalfedgeRef h2 = left_halfedges[i];
+
+        wire_triangle(f, e0, e1, e2, v0, v1, v2, h0, h1, h2);
+    }
+
+    //wire twins
+    for (int i = 0; i < degree - 3; i++) {
+        wire_twins(left_halfedges[i], right_halfedges[i+1]);
+    }
+}
+
 /*
     Splits all non-triangular faces into triangles.
 */
@@ -619,10 +724,10 @@ void Halfedge_Mesh::triangulate() {
 
     // loop over faces
     for (FaceRef f = faces_begin(); f != faces_end(); f++) {
-
+        if (f->degree() > 3) {
+            triangulate_face(f);
+        }
     }
-
-    // For each face...
 }
 
 /* Note on the quad subdivision process:

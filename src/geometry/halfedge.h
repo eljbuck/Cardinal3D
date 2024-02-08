@@ -296,6 +296,8 @@ public:
     // Student Global Operations | student/meshedit.cpp
     //////////////////////////////////////////////////////////////////////////////////////////
 
+    void triangulate_face(FaceRef f);
+
     /*
         Splits all non-triangular faces into triangles.
     */
