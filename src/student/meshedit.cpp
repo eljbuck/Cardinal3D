@@ -217,6 +217,7 @@ std::optional<Halfedge_Mesh::EdgeRef> Halfedge_Mesh::flip_edge(Halfedge_Mesh::Ed
     return e;
 }
 
+// wire inside of triangle (DOES NOT DO TWINS)
 void Halfedge_Mesh::wire_triangle(FaceRef f, 
         EdgeRef e0, EdgeRef e1, EdgeRef e2, 
         VertexRef v0, VertexRef v1, VertexRef v2,
@@ -227,33 +228,20 @@ void Halfedge_Mesh::wire_triangle(FaceRef f,
     h1->next() = h2;
     h2->next() = h0;
 
-    h0->edge() = e0;
-    h1->edge() = e1;
-    h2->edge() = e2;
+    wire_edge(h0, e0);
+    wire_edge(h1, e1);
+    wire_edge(h2, e2);
 
-    h0->vertex() = v0;
-    h1->vertex() = v1;
-    h2->vertex() = v2;
+    wire_vertex(h0, v0);
+    wire_vertex(h1, v1);
+    wire_vertex(h2, v2);
 
-    h0->face() = f;
-    h1->face() = f;
-    h2->face() = f;
-
-    //edges
-    e0->halfedge() = h0;
-    e1->halfedge() = h1;
-    e2->halfedge() = h2;
-
-    //verticies
-    v0->halfedge() = h0;
-    v1->halfedge() = h1;
-    v2->halfedge() = h2;
-
-    //face
-    f->halfedge() = h0;
+    wire_face(h0, f);
+    wire_face(h1, f);
+    wire_face(h2, f);
 }
 
-void Halfedge_Mesh::make_twins(HalfedgeRef a, HalfedgeRef b) {
+void Halfedge_Mesh::wire_twins(HalfedgeRef a, HalfedgeRef b) {
     a->twin() = b;
     b->twin() = a;
 }
@@ -315,9 +303,9 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::split_edge(Halfedge_Mesh:
     wire_triangle(f2, e6, e5, e2, v0, m, v2, h8, h7, h2); // bot left
     wire_triangle(f3, e3, e7, e6, v0, v3, m, h4, h10, h9); // bot right
 
-    make_twins(h6, h7);
-    make_twins(h11, h10);
-    make_twins(h9, h8);
+    wire_twins(h6, h7);
+    wire_twins(h11, h10);
+    wire_twins(h9, h8);
 
     return m;
 }
@@ -463,10 +451,10 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::bevel_face(Halfedge_Mesh::F
         wire_edge(top_face_halfedges[i], top_face_edges[i]);
 
         // wire twins for top face halfedges
-        make_twins(top_face_halfedges[i], new_top_halfedges[i]);
+        wire_twins(top_face_halfedges[i], new_top_halfedges[i]);
 
         // wire left/right twins for outside faces
-        make_twins(new_right_halfedges[i], new_left_halfedges[next_idx]);
+        wire_twins(new_right_halfedges[i], new_left_halfedges[next_idx]);
 
         // wire nexts for outside faces
         original_halfedges[i]->next() = new_right_halfedges[i];
@@ -628,6 +616,7 @@ void Halfedge_Mesh::bevel_face_positions(const std::vector<Vec3>& start_position
     Splits all non-triangular faces into triangles.
 */
 void Halfedge_Mesh::triangulate() {
+
     // For each face...
     
 }
