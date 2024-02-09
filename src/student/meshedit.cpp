@@ -68,6 +68,7 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::collapse_edge(Halfedge_Me
     if (e->halfedge()->is_boundary() || e->halfedge()->twin()->is_boundary()) {
         return std::nullopt;
     }
+
     // references
     EdgeRef e0 = e;
     Vec3 midpoint = e0->center();
@@ -906,8 +907,7 @@ struct Edge_Record {
     Edge_Record() {
     }
     Edge_Record(std::unordered_map<Halfedge_Mesh::VertexRef, Mat4>& vertex_quadrics,
-                Halfedge_Mesh::EdgeRef e)
-        : edge(e) {
+                Halfedge_Mesh::EdgeRef e) : edge(e) {
 
         // Compute the combined quadric from the edge endpoints.
         // -> Build the 3x3 linear system whose solution minimizes the quadric error
@@ -916,9 +916,44 @@ struct Edge_Record {
         //    Edge_Record::optimal.
         // -> Also store the cost associated with collapsing this edge in
         //    Edge_Record::cost.
+
+        Halfedge_Mesh::HalfedgeRef h = e->halfedge();
+
+        Halfedge_Mesh::VertexRef v0 = h->vertex();
+        Halfedge_Mesh::VertexRef v1 = h->twin()->vertex();
+
+        Mat4 K_v0 = vertex_quadrics[v0];
+        Mat4 K_v1 = vertex_quadrics[v1];
+
+        Mat4 K = K_v0 + K_v1;
+
+        Vec3 B = K.cols[3].xyz();
+
+        Vec4 column_0 = Vec4(K.cols[0].xyz(), 0);
+        Vec4 column_1 = Vec4(K.cols[1].xyz(), 0);
+        Vec4 column_2 = Vec4(K.cols[2].xyz(), 0);
+        Vec4 column_3 = Vec4(0, 0, 0, 1);
+
+        Mat4 A = Mat4(column_0, column_1, column_2, column_3);
+
+        Vec3 X;
+        Mat4 A_inv = A.inverse();
+        if (std::isnan(A_inv.cols[0][0])) {
+            std::cout << "an edge had an uninvertible matrix A" << std::endl;
+            X = v0->pos;
+        } else {
+            X = A_inv * B;
+        }
+
+        optimal = X;
+        cost = dot(X, (K * X));
+        edge = e;
     }
+
     Halfedge_Mesh::EdgeRef edge;
+
     Vec3 optimal;
+
     float cost;
 };
 
@@ -1042,6 +1077,91 @@ bool Halfedge_Mesh::simplify() {
     // The rest of the codebase will automatically call validate() after each op,
     // but here simply calling collapse_edge() will not erase the elements.
     // You should use collapse_edge_erase() instead for the desired behavior.
+
+    // get face quadrics
+    for (FaceRef f = faces_begin(); f != faces_end(); f++) {
+        
+        Vec3 P = f->center();
+        Vec3 N = f->normal();
+
+        Vec4 V = Vec4(N, -dot(N, P));
+        Mat4 quadric = outer(V, V);
+
+        face_quadrics[f] = quadric;
+    }
+
+    // get vertex quadrics
+    for (VertexRef v = vertices_begin(); v != vertices_end(); v++) {
+
+        HalfedgeRef h = v->halfedge();
+
+        do {
+            vertex_quadrics[v] += face_quadrics[h->face()];
+            h = h->twin()->next();
+        } while (h != v->halfedge());
+    }
+
+    // get edgerecords
+    for (EdgeRef e = edges_begin(); e != edges_end(); e++) {
+
+        edge_records[e] = Edge_Record(vertex_quadrics, e);
+        edge_queue.insert(edge_records[e]);
+    }
+
+    int target = faces.size() / 4;
+
+    std::cout << "target: " << (int) target << std::endl;
+
+    while ((int) faces.size() > target) {
+        std::cout << "faces size: " << (int) faces.size() << std::endl;
+
+        std::cout << "getting first edge_record off the pqueue" << std::endl;
+        std::cout << "edge_queue size: " << edge_queue.size() << std::endl;
+
+        Edge_Record cheap = edge_queue.top();
+        edge_queue.pop();
+
+        HalfedgeRef h = cheap.edge->halfedge(); //problematic line (breaks here when running on sphere). Next step would be to see if the read error is cheap.edge, or the halfedge access
+        VertexRef v0 = h->vertex();
+        VertexRef v1 = h->twin()->vertex();
+
+        std::cout << "accessing vertex_quadratics to get K_v0 and K_v1" << std::endl;
+        Mat4 K_v0 = vertex_quadrics[v0];
+        Mat4 K_v1 = vertex_quadrics[v1];
+
+        Mat4 K = K_v0 + K_v1;
+
+        std::cout << "removing edge records for connected edges" << std::endl;
+        HalfedgeRef h0 = v0->halfedge();
+        
+        do {
+            edge_queue.remove(edge_records[h0->edge()]);
+            h0 = h0->twin()->next();
+        } while (h0 != v0->halfedge());
+
+        HalfedgeRef h1 = v1->halfedge();
+
+        do {
+            edge_queue.remove(edge_records[h1->edge()]);
+            h1 = h1->twin()->next();
+        } while (h1 != v1->halfedge());
+
+        std::cout << "collapsing and erasing edge" << std::endl;
+        VertexRef new_vert = collapse_edge_erase(cheap.edge).value(); //NOTE: will break if there is a boundary edge
+        new_vert->pos = cheap.optimal;
+
+        std::cout << "setting vertex_quadratics[new_vert] to K" << std::endl;
+        vertex_quadrics[new_vert] = K;
+
+        std::cout << "adding edge records for connected edges" << std::endl;
+        HalfedgeRef h_new = new_vert->halfedge();
+
+        std::cout << "inserting new edge record to the queue" << std::endl;
+        do {
+            edge_queue.insert(Edge_Record(vertex_quadrics, h_new->edge()));
+            h_new = h_new->twin()->next();
+        } while (h_new != new_vert->halfedge());
+    }
 
     return false;
 }
