@@ -787,16 +787,22 @@ void Halfedge_Mesh::triangulate() {
     centroids.
 */
 void Halfedge_Mesh::linear_subdivide_positions() {
-
     // For each vertex, assign Vertex::new_pos to
     // its original position, Vertex::pos.
-
+    for (VertexRef v = vertices_begin(); v != vertices_end(); v++) {
+        v->new_pos = v->pos;
+    }
     // For each edge, assign the midpoint of the two original
     // positions to Edge::new_pos.
-
+    for (EdgeRef e = edges_begin(); e != edges_end(); e++) {
+        e->new_pos = e->center();
+    }
     // For each face, assign the centroid (i.e., arithmetic mean)
     // of the original vertex positions to Face::new_pos. Note
     // that in general, NOT all faces will be triangles!
+    for (FaceRef f = faces_begin(); f != faces_end(); f++) {
+        f->new_pos = f->center();
+    }
 }
 
 /*
@@ -818,10 +824,35 @@ void Halfedge_Mesh::catmullclark_subdivide_positions() {
     // rules. (These rules are outlined in the Developer Manual.)
 
     // Faces
-
+    for (FaceRef f = faces_begin(); f != faces_end(); f++) {
+        f->new_pos = f->center();
+    }
     // Edges
-
+    for (EdgeRef e = edges_begin(); e != edges_end(); e++) {
+        HalfedgeRef h0 = e->halfedge();
+        e->new_pos = ((h0->face()->center() + h0->twin()->face()->center()) / 2 + e->center()) / 2;
+    }
     // Vertices
+    for (VertexRef v = vertices_begin(); v != vertices_end(); v++) {
+        Vec3 Q; 
+        Vec3 R;
+        Vec3 S = v->pos;
+        float n = 0.;
+        HalfedgeRef h = v->halfedge();
+        do {
+            HalfedgeRef h_twin = h->twin();
+            Q += h_twin->face()->center();
+            R += h_twin->edge()->center();
+            n++;
+
+            h = h_twin->next();
+        } while(h != v->halfedge());
+
+        Q /= n;
+        R /= n;
+
+        v->new_pos = (Q + 2 * R + (n - 3) * S) / n;
+    }
 }
 
 /*
@@ -832,6 +863,9 @@ void Halfedge_Mesh::loop_subdivide() {
 
     // Compute new positions for all the vertices in the input mesh, using
     // the Loop subdivision rule, and store them in Vertex::new_pos.
+    // for (VertexRef v = vertices_begin(); v != vertices_end(); v++) {
+
+    // }
     // -> At this point, we also want to mark each vertex as being a vertex of the
     //    original mesh. Use Vertex::is_new for this.
     // -> Next, compute the updated vertex positions associated with edges, and
