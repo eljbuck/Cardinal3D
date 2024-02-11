@@ -213,6 +213,8 @@ public:
     */
     bool is_degenerate(FaceRef f);
     
+    bool is_collapsible(EdgeRef e);
+
     /*
         Collapse an edge, returning a pointer to the collapsed vertex
     */
