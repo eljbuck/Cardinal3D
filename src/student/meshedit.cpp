@@ -51,12 +51,55 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::erase_edge(Halfedge_Mesh::E
     return std::nullopt;
 }
 
+/*
+    Check if a triangle is degenerate based on vertex positions around a face
+*/
 bool Halfedge_Mesh::is_degenerate(Halfedge_Mesh::FaceRef f) {
+    
     HalfedgeRef h0 = f->halfedge();
     VertexRef v0 = h0->vertex();
     VertexRef v1 = h0->next()->vertex();
     VertexRef v2 = h0->next()->next()->vertex();
+
+    std::cout << "v0 pos: " <<  v0->pos << std::endl;
+    std::cout << "v1 pos: " <<  v1->pos << std::endl;
+    std::cout << "v2 pos: " <<  v2->pos << std::endl;
+
     return v0->pos == v1->pos || v1->pos == v2->pos || v2->pos == v0->pos;
+}
+
+bool Halfedge_Mesh::is_collapsible(EdgeRef e) {
+    VertexRef v0 = e->halfedge()->vertex();
+    VertexRef v1 = e->halfedge()->twin()->vertex();
+
+    std::set<VertexRef> seen_vertices =  std::set<VertexRef>();
+
+    // check which triangles are degenerate based on vertex positions
+    HalfedgeRef h_temp = v1->halfedge();
+    int count = 0;
+    
+    do {
+        seen_vertices.insert(h_temp->twin()->vertex());
+
+        // if (is_degenerate(h_temp->face())) {
+        //     std::cout << "tri was degen, count: " << count << std::endl;
+        // }
+
+
+        h_temp = h_temp->twin()->next();  
+    } while(h_temp != v1->halfedge());
+
+    h_temp = v0->halfedge();
+    
+    do {
+        if (seen_vertices.find(h_temp->twin()->vertex()) != seen_vertices.end()) {
+            count++;
+        }
+
+        h_temp = h_temp->twin()->next();  
+    } while(h_temp != v0->halfedge());
+
+    return count <= 2;
 }
 
 /*
@@ -65,7 +108,7 @@ bool Halfedge_Mesh::is_degenerate(Halfedge_Mesh::FaceRef f) {
 */
 std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::collapse_edge(Halfedge_Mesh::EdgeRef e) {
     // boundary check:
-    if (e->halfedge()->is_boundary() || e->halfedge()->twin()->is_boundary()) {
+    if (e->halfedge()->is_boundary() || e->halfedge()->twin()->is_boundary() || !is_collapsible(e)) {
         return std::nullopt;
     }
 
@@ -366,11 +409,68 @@ void Halfedge_Mesh::wire_face(HalfedgeRef h, FaceRef f) {
 */
 std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::bevel_vertex(Halfedge_Mesh::VertexRef v) {
 
-    // Reminder: You should set the positions of new vertices (v->pos) to be exactly
-    // the same as wherever they "started from."
+    // vectors of newly allocated elements
+    std::vector<VertexRef> new_verts = std::vector<VertexRef>();
+    std::vector<EdgeRef> new_edges = std::vector<EdgeRef>();
+    std::vector<HalfedgeRef> new_outside_halfedges = std::vector<HalfedgeRef>();
+    std::vector<HalfedgeRef> new_inside_halfedges = std::vector<HalfedgeRef>();
 
-    (void)v;
-    return std::nullopt;
+    //allocate new elements
+    FaceRef new_f = new_face();
+    for (int i = 0; i < (int) v->degree(); i++) {
+        new_verts.push_back(new_vertex());
+        new_edges.push_back(new_edge());
+        new_outside_halfedges.push_back(new_halfedge());
+        new_inside_halfedges.push_back(new_halfedge());
+    }
+
+    // wire stuff
+    HalfedgeRef h = v->halfedge()->twin();
+
+    int initial_degree = (int) v->degree();
+
+    for (int i = 0; i < initial_degree; i++) {
+        int next_i = (i + 1) % initial_degree;
+
+        // place vert temporarily
+        new_verts[i]->pos = h->edge()->center();
+
+        // get ref to next halfedge
+        HalfedgeRef h_next = h->next();
+
+        // wire nexts for halfedges
+        h->next() = new_outside_halfedges[i];
+        new_outside_halfedges[i]->next() = h_next;
+        new_inside_halfedges[i]->next() = new_inside_halfedges[next_i];
+
+        // wire twins for new halfedges
+        wire_twins(new_outside_halfedges[i], new_inside_halfedges[i]);
+
+        // wire new edges
+        wire_edge(new_outside_halfedges[i], new_edges[i]);
+        wire_edge(new_inside_halfedges[i], new_edges[i]);
+
+        // wire new faces
+        wire_face(new_outside_halfedges[i], h->face());
+        wire_face(new_inside_halfedges[i], new_f);
+
+        // wire new verts
+        wire_vertex(new_outside_halfedges[i], new_verts[i]);
+        wire_vertex(new_inside_halfedges[i], new_verts[next_i]);
+        wire_vertex(h_next, new_verts[next_i]);
+
+        h = h_next->twin(); // advance to next face
+    }
+
+    for (int i = 0; i < (int) new_verts.size(); i++) {
+        std::cout << "new vert: " << new_verts[i]->id() << std::endl;
+        std::cout << "new vert halfedge vertex: " << new_verts[i]->halfedge()->vertex()->id() << std::endl;
+    }
+
+    // get rid of v
+    erase(v);
+
+    return new_f;
 }
 
 /*
@@ -552,6 +652,8 @@ void Halfedge_Mesh::bevel_edge_positions(const std::vector<Vec3>& start_position
     (void)start_positions;
     (void)face;
     (void)tangent_offset;
+
+
 }
 
 /*
@@ -996,7 +1098,6 @@ struct Edge_Record {
         //    Edge_Record::cost.
 
         Halfedge_Mesh::HalfedgeRef h = e->halfedge();
-
         Halfedge_Mesh::VertexRef v0 = h->vertex();
         Halfedge_Mesh::VertexRef v1 = h->twin()->vertex();
 
@@ -1005,7 +1106,7 @@ struct Edge_Record {
 
         Mat4 K = K_v0 + K_v1;
 
-        Vec3 B = K.cols[3].xyz();
+        Vec3 B = -K.cols[3].xyz();
 
         Vec4 column_0 = Vec4(K.cols[0].xyz(), 0);
         Vec4 column_1 = Vec4(K.cols[1].xyz(), 0);
@@ -1020,12 +1121,16 @@ struct Edge_Record {
             std::cout << "an edge had an uninvertible matrix A" << std::endl;
             X = v0->pos;
         } else {
-            X = A_inv * B;
+            X = (A_inv * Vec4(B, 1)).xyz();
         }
 
         optimal = X;
-        cost = dot(X, (K * X));
+        cost = dot(Vec4(X,1), K * Vec4(X,1));
         edge = e;
+        
+        // edge = e;
+        // optimal = edge->center();
+        // cost = 0.0;
     }
 
     Halfedge_Mesh::EdgeRef edge;
@@ -1118,43 +1223,22 @@ template<class T> struct PQueue {
         return queue.size();
     }
 
+    T operator[] (int idx) {
+        return *std::next(queue.begin(), idx);
+    }
+
     std::set<T> queue;
 };
 
 /*
-    Mesh simplification. Note that this function returns success in a similar
-    manner to the local operations, except with only a boolean value.
-    (e.g. you may want to return false if you can't simplify the mesh any
-    further without destroying it.)
-*/
+    Mesh simplification. Return true if mesh simplification was successful down to 1/4 original num of triangles, false otherwise.
+   */
 bool Halfedge_Mesh::simplify() {
 
     std::unordered_map<VertexRef, Mat4> vertex_quadrics;
     std::unordered_map<FaceRef, Mat4> face_quadrics;
     std::unordered_map<EdgeRef, Edge_Record> edge_records;
     PQueue<Edge_Record> edge_queue;
-
-    // Compute initial quadrics for each face by simply writing the plane equation
-    // for the face in homogeneous coordinates. These quadrics should be stored
-    // in face_quadrics
-    // -> Compute an initial quadric for each vertex as the sum of the quadrics
-    //    associated with the incident faces, storing it in vertex_quadrics
-    // -> Build a priority queue of edges according to their quadric error cost,
-    //    i.e., by building an Edge_Record for each edge and sticking it in the
-    //    queue. You may want to use the above PQueue<Edge_Record> for this.
-    // -> Until we reach the target edge budget, collapse the best edge. Remember
-    //    to remove from the queue any edge that touches the collapsing edge
-    //    BEFORE it gets collapsed, and add back into the queue any edge touching
-    //    the collapsed vertex AFTER it's been collapsed. Also remember to assign
-    //    a quadric to the collapsed vertex, and to pop the collapsed edge off the
-    //    top of the queue.
-
-    // Note: if you erase elements in a local operation, they will not be actually deleted
-    // until do_erase or validate are called. This is to facilitate checking
-    // for dangling references to elements that will be erased.
-    // The rest of the codebase will automatically call validate() after each op,
-    // but here simply calling collapse_edge() will not erase the elements.
-    // You should use collapse_edge_erase() instead for the desired behavior.
 
     // get face quadrics
     for (FaceRef f = faces_begin(); f != faces_end(); f++) {
@@ -1172,6 +1256,7 @@ bool Halfedge_Mesh::simplify() {
     for (VertexRef v = vertices_begin(); v != vertices_end(); v++) {
 
         HalfedgeRef h = v->halfedge();
+        vertex_quadrics[v] = Mat4().Zero;
 
         do {
             vertex_quadrics[v] += face_quadrics[h->face()];
@@ -1179,67 +1264,94 @@ bool Halfedge_Mesh::simplify() {
         } while (h != v->halfedge());
     }
 
-    // get edgerecords
+    // get edge records
     for (EdgeRef e = edges_begin(); e != edges_end(); e++) {
 
         edge_records[e] = Edge_Record(vertex_quadrics, e);
         edge_queue.insert(edge_records[e]);
     }
 
+    // must have at least 16 faces to simplify, otherwise the resulting mesh will have less than 4 faces, meaning it's degenerate
+    if (faces.size() < 16) {
+        return false;
+    }
+
     int target = faces.size() / 4;
 
-    std::cout << "target: " << (int) target << std::endl;
-
+    // loop while not enough faces have been simplified
     while ((int) faces.size() > target) {
-        std::cout << "faces size: " << (int) faces.size() << std::endl;
 
-        std::cout << "getting first edge_record off the pqueue" << std::endl;
-        std::cout << "edge_queue size: " << edge_queue.size() << std::endl;
+        // cancel op if no edges are collapsible, but simplify is not done yet
+        if (edge_queue.size() == 0) {
+            return false;
+        }
 
-        Edge_Record cheap = edge_queue.top();
-        edge_queue.pop();
+        Edge_Record cheap;
+        cheap = edge_queue.top();
 
-        HalfedgeRef h = cheap.edge->halfedge(); //problematic line (breaks here when running on sphere). Next step would be to see if the read error is cheap.edge, or the halfedge access
+        // NOTE: the commented out code reevaluates the collapsibility of edges from the queue
+        // a previous version of our code left non-collapsible edges in the queue, checking their collapsibility every iteration
+        // this made more sense theoretically, but visually we couldn't tell the difference, and the runtime
+        // was significantly longer (2-3x on dragon and teapot)
+
+        // find the highest priority collapsible edge from the queue
+        // for (int i = 0; i < (int) edge_queue.size(); i++) {
+        //     if (is_collapsible(edge_queue[i].edge)) {
+        //         cheap = edge_queue[i];
+        //         break;
+        //     }
+        // }
+
+        edge_queue.remove(cheap);
+
+        // if edge would lead to degenerate mesh on collapse, ignore it for the rest of this simplify op
+        if (!is_collapsible(cheap.edge)) {
+            continue;
+        }
+        
+        // get the quadric for the edge that is to be collapsed
+        HalfedgeRef h = cheap.edge->halfedge();
         VertexRef v0 = h->vertex();
         VertexRef v1 = h->twin()->vertex();
 
-        std::cout << "accessing vertex_quadratics to get K_v0 and K_v1" << std::endl;
         Mat4 K_v0 = vertex_quadrics[v0];
         Mat4 K_v1 = vertex_quadrics[v1];
-
         Mat4 K = K_v0 + K_v1;
 
-        std::cout << "removing edge records for connected edges" << std::endl;
+        // remove edge records for all edges attached to the edge to be collapsed
         HalfedgeRef h0 = v0->halfedge();
-        
         do {
             edge_queue.remove(edge_records[h0->edge()]);
             h0 = h0->twin()->next();
         } while (h0 != v0->halfedge());
 
         HalfedgeRef h1 = v1->halfedge();
-
         do {
             edge_queue.remove(edge_records[h1->edge()]);
             h1 = h1->twin()->next();
         } while (h1 != v1->halfedge());
 
-        std::cout << "collapsing and erasing edge" << std::endl;
-        VertexRef new_vert = collapse_edge_erase(cheap.edge).value(); //NOTE: will break if there is a boundary edge
+        //delete old endpoint quadrics
+        vertex_quadrics.erase(v0);
+        vertex_quadrics.erase(v1);
+
+        // collapse edge, set vertex pos
+        VertexRef new_vert = collapse_edge_erase(cheap.edge).value(); // breaks if on boundary
         new_vert->pos = cheap.optimal;
 
-        std::cout << "setting vertex_quadratics[new_vert] to K" << std::endl;
+        // add quadric for the new vert
         vertex_quadrics[new_vert] = K;
 
-        std::cout << "adding edge records for connected edges" << std::endl;
+        // create new edge record for every edge attached to new vert, insert these into the map and queue
         HalfedgeRef h_new = new_vert->halfedge();
-
-        std::cout << "inserting new edge record to the queue" << std::endl;
         do {
-            edge_queue.insert(Edge_Record(vertex_quadrics, h_new->edge()));
+            Edge_Record record(vertex_quadrics, h_new->edge());
+            edge_records[h_new->edge()] = record;
+
+            edge_queue.insert(edge_records[h_new->edge()]);
             h_new = h_new->twin()->next();
         } while (h_new != new_vert->halfedge());
     }
 
-    return false;
+    return true;
 }
