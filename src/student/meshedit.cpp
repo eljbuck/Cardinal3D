@@ -308,6 +308,9 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::split_edge(Halfedge_Mesh:
     wire_twins(h11, h10);
     wire_twins(h9, h8);
 
+    // guarantee that m's associated halfedge is on original mesh
+    m->halfedge() = h0;
+
     return m;
 }
 
@@ -861,16 +864,45 @@ void Halfedge_Mesh::catmullclark_subdivide_positions() {
         using Loop subdivision. Note: this is will only be called on triangle meshes.
 */
 void Halfedge_Mesh::loop_subdivide() {
-
     // Compute new positions for all the vertices in the input mesh, using
     // the Loop subdivision rule, and store them in Vertex::new_pos.
-    // for (VertexRef v = vertices_begin(); v != vertices_end(); v++) {
-
-    // }
     // -> At this point, we also want to mark each vertex as being a vertex of the
     //    original mesh. Use Vertex::is_new for this.
+    for (VertexRef v = vertices_begin(); v != vertices_end(); v++) {
+        // flag as old vertex
+        v->is_new = false;
+
+        // compute n and u
+        float n = v->degree();
+        float u;
+        if (n == 3) {
+            u = 3/16;
+        } else { 
+            u = 3 / (8 * n);
+        }
+
+        // compute sum of neighbor positions
+        Vec3 sum;
+        HalfedgeRef h = v->halfedge();
+        do {
+            sum += h->twin()->vertex()->pos;
+            h = h->twin()->next();
+        } while (h != v->halfedge());
+
+        // compute new position
+        v->new_pos = (1 - n * u) * v->pos + u * sum;
+    }
     // -> Next, compute the updated vertex positions associated with edges, and
     //    store it in Edge::new_pos.
+    for (EdgeRef e = edges_begin(); e != edges_end(); e++) {
+        HalfedgeRef h0 = e->halfedge();
+        VertexRef A = h0->vertex();
+        VertexRef B = h0->twin()->vertex();
+        VertexRef C = h0->next()->next()->vertex();
+        VertexRef D = h0->twin()->next()->next()->vertex();
+        e->new_pos = (3.0 /8) * (A->pos + B->pos) + (1.0 /8) * (C->pos + D->pos);
+        e->is_new = false;
+    }
     // -> Next, we're going to split every edge in the mesh, in any order.  For
     //    future reference, we're also going to store some information about which
     //    subdivided edges come from splitting an edge in the original mesh, and
@@ -878,35 +910,47 @@ void Halfedge_Mesh::loop_subdivide() {
     //    loop, we only want to iterate over edges of the original mesh.
     //    Otherwise, we'll end up splitting edges that we just split (and the
     //    loop will never end!)
+    int n = n_edges();
+    EdgeRef e = edges_begin();
+    for (int i = 0; i < n; i++) {
+
+        Vec3 new_pos = e->new_pos;
+        // get the next edge NOW!
+        EdgeRef nextEdge = e;
+        nextEdge++;
+
+        if (!e->is_new) {
+            // split edge
+            VertexRef new_vertex = split_edge(e).value();
+            // set new vertex properties
+            new_vertex->is_new = true;
+            new_vertex->new_pos = new_pos;
+            // set new edge properties
+            HalfedgeRef h0 = new_vertex->halfedge();
+            h0->next()->next()->edge()->is_new = true;
+            h0->twin()->next()->edge()->is_new = true;
+            h0->edge()->is_new = false;
+            h0->twin()->next()->twin()->next()->edge()->is_new = false;
+
+        }
+
+        e = nextEdge;
+    }
     // -> Now flip any new edge that connects an old and new vertex.
+    for (EdgeRef e = edges_begin(); e != edges_end(); e++) {
+        if (e->is_new) {
+            HalfedgeRef h0 = e->halfedge();
+            VertexRef v0 = h0->vertex();
+            VertexRef v1 = h0->twin()->vertex();
+            if (v0->is_new != v1->is_new) {
+                flip_edge(e);
+            }
+        }
+    }
     // -> Finally, copy the new vertex positions into final Vertex::pos.
-
-    // Each vertex and edge of the original surface can be associated with a
-    // vertex in the new (subdivided) surface.
-    // Therefore, our strategy for computing the subdivided vertex locations is to
-    // *first* compute the new positions
-    // using the connectivity of the original (coarse) mesh; navigating this mesh
-    // will be much easier than navigating
-    // the new subdivided (fine) mesh, which has more elements to traverse.  We
-    // will then assign vertex positions in
-    // the new mesh based on the values we computed for the original mesh.
-
-    // Compute updated positions for all the vertices in the original mesh, using
-    // the Loop subdivision rule.
-
-    // Next, compute the updated vertex positions associated with edges.
-
-    // Next, we're going to split every edge in the mesh, in any order. For
-    // future reference, we're also going to store some information about which
-    // subdivided edges come from splitting an edge in the original mesh, and
-    // which edges are new.
-    // In this loop, we only want to iterate over edges of the original
-    // mesh---otherwise, we'll end up splitting edges that we just split (and
-    // the loop will never end!)
-
-    // Finally, flip any new edge that connects an old and new vertex.
-
-    // Copy the updated vertex positions to the subdivided mesh.
+    for (VertexRef v = vertices_begin(); v != vertices_end(); v++) {
+        v->pos = v->new_pos;
+    }
 }
 
 /*

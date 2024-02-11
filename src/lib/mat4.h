@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <ostream>
+#include <iostream>
 
 #include "log.h"
 #include "vec4.h"
@@ -202,6 +203,21 @@ struct Mat4 {
     /// Returns matrix inverse (will be NaN if m is not invertible)
     Mat4 inverse() const {
         return inverse(*this);
+    }
+
+    void print(const Mat4& m) const {
+        std::cout << "[ ";
+        for(int i = 0; i < 16; i++) {
+            std::cout << m.data[i] << " ";
+            if ((i + 1) % 4 == 0 && i != 15) {
+                std::cout << "" << std::endl;
+            }
+        }
+        std::cout << " ]" << std::endl;
+    }
+
+    void print() const {
+        print(*this);
     }
 
     /// Returns determinant (brute force).
